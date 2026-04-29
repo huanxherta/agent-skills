@@ -8,14 +8,44 @@ Hermes Agent 的技能库，严格遵循 [Agent Skills 规范](https://agentskil
 
 | 分类 | 技能数 | 跳转 |
 |------|--------|------|
-| DevOps | 5 | [→](#devops) |
-| MLOps | 1 | [→](#mlops) |
-| GitHub | 1 | [→](#github) |
+| Chatbot | 1 | [→](#chatbot) |
 | Creative | 1 | [→](#creative) |
+| DevOps | 2 | [→](#devops) |
+| Gaming | 1 | [→](#gaming) |
+| GitHub | 1 | [→](#github) |
+| MLOps | 1 | [→](#mlops) |
 
 ---
 
 ## 技能总览
+
+### Chatbot
+
+| 技能 | 用途 | 路径 |
+|------|------|------|
+| [astrbot-plugin-dev](#astrbot-plugin-dev) | AstrBot QQ 机器人插件开发 | [`chatbot/astrbot-plugin-dev/`](chatbot/astrbot-plugin-dev/) |
+
+<details>
+<summary><b>astrbot-plugin-dev</b></summary>
+
+AstrBot QQ 机器人插件开发完整指南。基于 20+ 真实插件总结的开发规范，覆盖插件结构、装饰器、消息处理、LLM 集成、配置系统、数据持久化。
+
+→ [完整文档](chatbot/astrbot-plugin-dev/SKILL.md)
+</details>
+
+### Creative
+
+| 技能 | 用途 | 路径 |
+|------|------|------|
+| [architecture-diagram](#architecture-diagram) | 暗色主题架构图 | [`creative/architecture-diagram/`](creative/architecture-diagram/) |
+
+<details>
+<summary><b>architecture-diagram</b></summary>
+
+生成暗色主题 SVG 架构图（HTML 内联），语义化配色，JetBrains Mono 字体。
+
+→ [完整文档](creative/architecture-diagram/SKILL.md)
+</details>
 
 ### DevOps
 
@@ -47,18 +77,21 @@ Hermes Agent 的技能库，严格遵循 [Agent Skills 规范](https://agentskil
 → [完整文档](devops/mihomo-proxy-switch/SKILL.md)
 </details>
 
-### MLOps
+### Gaming
 
 | 技能 | 用途 | 路径 |
 |------|------|------|
-| [huggingface-hub](#huggingface-hub) | HF Hub CLI 操作 | [`mlops/huggingface-hub/`](mlops/huggingface-hub/) |
+| [galgame-unpacker](#galgame-unpacker) | 视觉小说资源解包 | [`gaming/galgame-unpacker/`](gaming/galgame-unpacker/) |
 
 <details>
-<summary><b>huggingface-hub</b></summary>
+<summary><b>galgame-unpacker</b></summary>
 
-Hugging Face Hub CLI（hf）：搜索、下载、上传模型/数据集，管理 Spaces。
+解包 Softpal/Amuse Craft 引擎视觉小说游戏资源。支持 PAC 归档提取和 PGD 图片解码（GE/PGD3 格式，LZSS 压缩）。
 
-→ [完整文档](mlops/huggingface-hub/SKILL.md)
+- 已测试游戏：CRACK≡TRICK!
+- 输出：PNG 格式图片（1280×720）
+
+→ [完整文档](gaming/galgame-unpacker/SKILL.md)
 </details>
 
 ### GitHub
@@ -75,18 +108,18 @@ Hugging Face Hub CLI（hf）：搜索、下载、上传模型/数据集，管理
 → [完整文档](github/github-pr-workflow/SKILL.md)
 </details>
 
-### Creative
+### MLOps
 
 | 技能 | 用途 | 路径 |
 |------|------|------|
-| [architecture-diagram](#architecture-diagram) | 暗色主题架构图 | [`creative/architecture-diagram/`](creative/architecture-diagram/) |
+| [huggingface-hub](#huggingface-hub) | HF Hub CLI 操作 | [`mlops/huggingface-hub/`](mlops/huggingface-hub/) |
 
 <details>
-<summary><b>architecture-diagram</b></summary>
+<summary><b>huggingface-hub</b></summary>
 
-生成暗色主题 SVG 架构图（HTML 内联），语义化配色，JetBrains Mono 字体。
+Hugging Face Hub CLI（hf）：搜索、下载、上传模型/数据集，管理 Spaces。
 
-→ [完整文档](creative/architecture-diagram/SKILL.md)
+→ [完整文档](mlops/huggingface-hub/SKILL.md)
 </details>
 
 ---
@@ -97,19 +130,28 @@ Hugging Face Hub CLI（hf）：搜索、下载、上传模型/数据集，管理
 agent-skills/
 ├── README.md              ← 本文件
 ├── LICENSE
+├── chatbot/
+│   └── astrbot-plugin-dev/
+│       └── SKILL.md
+├── creative/
+│   └── architecture-diagram/
+│       └── SKILL.md
 ├── devops/
 │   ├── ds2api-update/
 │   │   └── SKILL.md
 │   └── mihomo-proxy-switch/
 │       └── SKILL.md
-├── mlops/
-│   └── huggingface-hub/
-│       └── SKILL.md
+├── gaming/
+│   └── galgame-unpacker/
+│       ├── SKILL.md
+│       └── scripts/
+│           ├── unpack_pac.py
+│           └── pgd_decoder.py
 ├── github/
 │   └── github-pr-workflow/
 │       └── SKILL.md
-└── creative/
-    └── architecture-diagram/
+└── mlops/
+    └── huggingface-hub/
         └── SKILL.md
 ```
 
