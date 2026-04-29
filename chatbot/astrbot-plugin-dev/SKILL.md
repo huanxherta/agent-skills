@@ -1,13 +1,11 @@
 ---
 name: astrbot-plugin-dev
-description: >
-  AstrBot QQ机器人插件开发完整指南。基于20+真实插件总结的开发规范，覆盖插件结构、装饰器、消息处理、LLM集成、配置系统、数据持久化。使用 when developing AstrBot plugins or QQ bot plugins with OneBot protocol.
+description: AstrBot QQ bot plugin development guide. Covers plugin structure, decorators, message handling, LLM integration, config system, data persistence. Use when developing AstrBot plugins or QQ bot plugins with OneBot protocol.
 license: MIT
 metadata:
   author: huanxherta
   version: "1.0"
   category: chatbot
-  platform: AstrBot / OneBot / QQ
 ---
 
 # AstrBot 插件开发完整指南

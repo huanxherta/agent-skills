@@ -1,18 +1,12 @@
 ---
 name: galgame-unpacker
-description: >
-  Unpack visual novel game archives and decode proprietary image formats.
-  Supports Softpal/Amuse Craft engine PAC archives and PGD images (GE/PGD3).
-  Use when extracting images, audio, or scripts from visual novel games.
+description: Unpack visual novel game archives and decode proprietary image formats. Supports Softpal/Amuse Craft engine PAC archives and PGD images (GE/PGD3). Use when extracting images, audio, or scripts from visual novel games.
 license: MIT
 compatibility: Requires Python 3.8+ and Pillow (pip install Pillow)
 metadata:
   author: huanxherta
   version: "1.0"
   category: gaming
-  tested_games:
-    - "CRACK≡TRICK!"
-  engine: Softpal/Amuse Craft
 ---
 
 # GalGame Unpacker
