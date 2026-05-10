@@ -1,588 +1,1126 @@
 ---
 name: astrbot-plugin-dev
-description: AstrBot QQ bot plugin development guide. Covers plugin structure, decorators, message handling, LLM integration, config system, data persistence. Use when developing AstrBot plugins or QQ bot plugins with OneBot protocol.
-license: MIT
-metadata:
-  author: huanxherta
-  version: "1.0"
-  category: chatbot
+description: Complete AstrBot plugin development guide. Covers setup, message events, sending messages, config, AI calls, storage, session control, publishing, and platform adapters.
+tags: astrbot, plugin, python, bot, qq, telegram
 ---
 
-# AstrBot 插件开发完整指南
+# AstrBot 插件开发指南
 
-## 一、插件目录结构
+## 前置要求
+- Python 编程经验
+- Git / GitHub 使用经验
+- 开发者 QQ 群: `975206796`
 
-每个插件为一个文件夹，典型结构如下：
+## 快速开始
 
+### 1. 创建插件仓库
+- 模板: https://github.com/Soulter/helloworld → Use this template
+- 仓库名格式: `astrbot_plugin_xxx`（全小写、无空格、简短）
+
+### 2. 克隆到本地
+```bash
+git clone https://github.com/AstrBotDevs/AstrBot
+mkdir -p AstrBot/data/plugins
+cd AstrBot/data/plugins
+git clone 你的插件仓库地址
 ```
-插件名/
-├── main.py                # 必需：主入口，包含继承 Star 的类
-├── metadata.yaml          # 必需：插件元信息
-├── _conf_schema.json      # 可选：配置面板 schema（有配置时必需）
-├── README.md              # 可选：说明文档
-├── CHANGELOG.md           # 可选：更新日志
-├── requirements.txt       # 可选：额外 Python 依赖
-├── logo.png               # 可选：插件图标
-└── xxx.py                 # 可选：辅助模块（如 Tools.py）
-```
 
-**插件路径**：`~/AstrBot/data/plugins/`
-
----
-
-## 二、metadata.yaml
-
+### 3. metadata.yaml（必须修改）
 ```yaml
-name: 插件名                    # 必需，唯一标识
-display_name: 显示名             # 可选，后台展示名
-desc: 插件描述                   # 简短描述
-version: v1.0.0                 # 版本号
-author: 作者名                   # 作者
-repo: https://github.com/...    # 仓库地址（可为"无"）
-dependencies: []                # 可选，依赖的其他插件名称
-support_platforms:              # 可选，限制平台；不填则支持所有
-  - aiocqhttp                  # 仅支持 OneBot 协议（NapCat等）
+name: astrbot_plugin_xxx
+desc: 插件描述
+version: 1.0.0
+author: your_name
+repo: https://github.com/xxx/astrbot_plugin_xxx
+# 可选字段:
+display_name: 展示名
+support_platforms: [aiocqhttp, telegram, discord]
+astrbot_version: ">=4.16,<5"
 ```
 
----
+支持的平台: `aiocqhttp`, `qq_official`, `telegram`, `wecom`, `lark`, `dingtalk`, `discord`, `slack`, `kook`, `vocechat`, `weixin_official_account`, `satori`, `misskey`, `line`
 
-## 三、main.py 核心结构
+### 4. 插件结构
+```
+astrbot_plugin_xxx/
+├── main.py          # 插件入口
+├── metadata.yaml    # 元数据（必须）
+├── _conf_schema.json # 配置schema（可选）
+├── requirements.txt  # 依赖（可选）
+├── logo.png         # Logo 256x256（可选）
+└── README.md
+```
 
-### 3.1 类定义
+### 5. 调试
+- 启动 AstrBot 本体
+- 修改代码后在 WebUI → 插件管理 → `...` → 重载插件
+- 加载失败可点"尝试一键重载修复"
+
+### 6. 依赖管理
+在插件目录下创建 `requirements.txt`，使用异步库：
+- ✅ `aiohttp`, `httpx`
+- ❌ `requests`（不要用）
+
+## 最小插件示例
 
 ```python
-from astrbot.api.event import filter
-from astrbot.api.all import Star, Context, AstrBotConfig, logger
+from astrbot.api.star import Context, Star, register
+from astrbot.api.event import filter, AstrMessageEvent
 
-class MyPlugin(Star):
-    def __init__(self, context: Context, config: AstrBotConfig):
+@register("astrbot_plugin_hello", "Author", "Hello Plugin", "1.0.0")
+class HelloPlugin(Star):
+    def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        # 读取配置（如有）
-        self.some_value = config.get("key", default_value)
-
-    async def initialize(self) -> None:
-        """可选异步初始化"""
-
-    async def terminate(self) -> None:
-        """当插件被禁用、重载时调用，可用于清理任务、保存数据"""
+    
+    @filter.command("hello")
+    async def hello(self, event: AstrMessageEvent):
+        yield event.plain_result("Hello, AstrBot!")
 ```
 
-**注意**：
-- 如果有 `_conf_schema.json`，则 `__init__` 签名必须为 `(self, context, config)`，否则为 `(self, context)`。
-- 可以使用 `@register("名称", "作者", "描述", "版本")` 装饰器（高版本框架已废弃，推荐在 metadata.yaml 中定义）。
+⚠️ 注意 `__init__` 有 `(context, config)` 两个参数。即使插件不需要配置，也要保留 `config` 参数，否则以后加配置时会踩坑。
 
-### 3.2 核心装饰器一览
+## 核心 API
 
-| 装饰器 | 用途 |
-|--------|------|
-| `@filter.event_message_type(EventMessageType.GROUP_MESSAGE)` | 接收群消息 |
-| `@filter.event_message_type(EventMessageType.ALL)` | 接收所有消息（群+私聊） |
-| `@filter.command("指令名")` | 注册指令（自动处理前缀） |
-| `@filter.command("指令名", alias={"别名1", "别名2"})` | 带别名的指令 |
-| `@filter.permission_type(PermissionType.ADMIN)` | 仅管理员可用 |
-| `@filter.permission_type(PermissionType.ADMIN, raise_error=False)` | 权限不足时不主动报错 |
-| `@filter.on_llm_request()` | LLM 请求前处理（注入提示词等） |
-| `@filter.on_llm_response()` | LLM 响应后处理（过滤、修改回复） |
-| `@filter.on_decorating_result()` | 消息发送前处理（修改最终输出） |
-| `@filter.on_astrbot_loaded()` | 框架加载完成时执行初始化 |
-| `@filter.after_message_sent()` | 消息成功发送后触发 |
-| `@filter.llm_tool("工具名")` | 注册 LLM 可调用工具 |
-| `@filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP)` | 限制平台（如仅 QQ/OneBot） |
-
-所有装饰器均可传入 `priority` 参数（整型，值越大越先执行）：
-
+### 接收消息 - 装饰器
 ```python
-@filter.event_message_type(EventMessageType.GROUP_MESSAGE, priority=888)
-```
+# 命令触发
+@filter.command("命令名")
+async def handler(self, event: AstrMessageEvent):
+    yield event.plain_result("回复")
 
-### 3.3 事件处理方法
-
-#### 指令处理（推荐，自动解析参数）
-
-```python
-@filter.command("设置")
-async def set_cmd(self, event: AstrMessageEvent, key: str = "", value: str = ""):
-    # 框架自动按空格分割参数：/设置 key value -> key="key", value="value"
-    if not key:
-        yield event.plain_result("请输入键名")
-        return
-    # ... 处理逻辑
-    yield event.plain_result(f"已设置 {key} = {value}")
-
-@filter.command("设置全部")
-async def set_all(self, event: AstrMessageEvent):
-    text = event.get_message_str().strip().split()[1]
-    yield event.plain_result(f"收到的参数：{text}")
-```
-
-#### 消息类型过滤
-
-```python
-@filter.event_message_type(EventMessageType.GROUP_MESSAGE)
-async def on_group(self, event: AstrMessageEvent):
+# 正则匹配
+@filter.regex("正则表达式")
+async def handler(self, event: AstrMessageEvent):
     pass
 
-@filter.event_message_type(EventMessageType.ALL)
-async def on_all(self, event: AstrMessageEvent):
+# 事件监听
+@filter.event_message_type(filter.EventMessageType.ALL)
+async def handler(self, event: AstrMessageEvent):
+    pass
+
+# 关键词
+@filter.keyword("关键词")
+async def handler(self, event: AstrMessageEvent):
+    pass
+
+# 所有消息（需 permission）
+@filter.permission_type(filter.PermissionType.ADMIN)
+@filter.event_message_type(filter.EventMessageType.ALL)
+async def handler(self, event: AstrMessageEvent):
     pass
 ```
 
-#### 平台过滤
-
+### 发送消息
 ```python
-@filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
-async def on_qq(self, event: AstrMessageEvent):
-    pass
+# 纯文本
+yield event.plain_result("文本")
+
+# At 用户
+yield event.at_result(event.get_sender_id())
+
+# 合并结果
+result = event.plain_result("第一句")
+result.chain.extend(event.plain_result("第二句").chain)
+yield result
+
+# 图片（URL）
+from astrbot.api.message_components import Image
+yield event.image_result("https://example.com/img.png")
+
+# 回复消息
+yield event.reply("回复内容")
 ```
 
-#### 组合使用
-
+### 调用 AI
 ```python
-@filter.event_message_type(EventMessageType.GROUP_MESSAGE)
-@filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
-async def on_qq_group(self, event: AiocqhttpMessageEvent):
-    pass
+# 获取当前 provider
+provider = self.context.get_using_provider()
+if provider:
+    # 文本对话
+    result = await provider.text_chat(
+        prompt="用户消息",
+        session_id=event.session_id,
+        contexts=[]  # 可传入上下文
+    )
+    yield event.plain_result(result.completion_text)
+    
+    # 带工具调用
+    result = await provider.text_chat(
+        prompt="用户消息",
+        func_tool_manager=self.context.get_llm_tool_manager()
+    )
 ```
 
-#### LLM 请求/响应处理
-
-```python
-from astrbot.api.provider import ProviderRequest, LLMResponse
-
-@filter.on_llm_request()
-async def llm请求前(self, event: AstrMessageEvent, req: ProviderRequest):
-    req.system_prompt += "\n额外提示词：当前群号是..." 
-
-@filter.on_llm_response()
-async def llm请求后(self, event: AstrMessageEvent, resp: LLMResponse):
-    resp.completion_text = resp.completion_text.replace("敏感词", "***")
-```
-
-#### 结果装饰器（发送前篡改）
-
-```python
-from astrbot.api.all import Plain
-
-@filter.on_decorating_result()
-async def 发送消息前(self, event: AstrMessageEvent):
-    result = event.get_result()
-    for seg in result.chain:
-        if isinstance(seg, Plain) and seg.text:
-            seg.text = seg.text.replace("临时占位", "最终内容")
-```
-
-### 3.4 消息处理流程（返回值方式）
-
-```python
-# 方式一：yield 返回（推荐，可多次返回）
-@filter.command("测试")
-async def test(self, event: AstrMessageEvent, text: str = ""):
-    if not text:
-        yield event.plain_result("请输入内容")
-        return
-    event.stop_event()  # 阻止后续插件处理
-    yield event.plain_result(f"你说的是: {text}")
-
-# 方式二：async for 调用子方法
-@filter.command("签到")
-async def sign(self, event: AstrMessageEvent):
-    event.stop_event()
-    async for result in self._do_sign(event):
-        yield result
-
-# 方式三：直接 send（后台任务）
-await event.send(event.plain_result("异步通知"))
-```
-
----
-
-## 四、Event API 参考
-
-### 4.1 常用属性/方法
-
-```python
-event.get_message_str()       # 获取纯文本消息
-event.message_str              # 属性形式
-event.get_messages()           # 获取消息链 list[BaseMessageComponent]
-event.get_group_id()           # 群号 (str)，私聊时返回空字符串
-event.get_sender_id()          # 发送者 ID (str)
-event.get_sender_name()        # 发送者昵称 (str)
-event.get_self_id()            # 机器人自身 ID (str)
-event.get_session_id()         # 会话 ID (str)
-event.unified_msg_origin       # 消息来源标识 (str)
-event.is_admin()               # 发送者是否为管理员 (bool)
-event.is_at_or_wake_command    # 是否被 @ 或唤醒
-
-# 事件控制
-event.stop_event()             # 阻止后续插件处理同一消息
-event.set_extra("key", value)  # 设置额外信息，可在请求各阶段间传递数据
-event.get_extra("key")
-
-# 回复结果构建
-event.plain_result("文本")                  # 纯文本消息
-event.image_result("路径/URL")              # 图片消息
-event.chain_result([Plain(...), At(...)])   # 自定义消息链
-```
-
-### 4.2 消息段类型
-
-```python
-from astrbot.api.all import Plain, Image, At, Reply, Poke
-
-# 解析接收到的消息
-for seg in event.get_messages():
-    if isinstance(seg, Plain):
-        print(seg.text)           # 纯文本
-    elif isinstance(seg, At):
-        print(seg.qq, seg.name)   # 被 @ 的 QQ 号和昵称（int|str)
-    elif isinstance(seg, Reply):
-        print(seg.id)             # 被引用消息 ID（int|str)
-        print(seg.chain)          # 被引用消息链
-        print(seg.sender_id)      # 被引用消息发送者 ID（int|str)
-    elif isinstance(seg, Image):
-        print(seg.url)            # 图片 URL（str|None)
-        print(await seg.convert_to_base64())  # 图片的 base64 字符串
-
-# 构建消息段
-async def 构造并发送消息链(event, 文本=None, 回复=False, 艾特=False,
-            base图片=None, URL图片=None, 本地图片=None):
-    消息链 = []
-    if 回复:
-        消息链.append(Reply(id=event.message_obj.message_id))
-    if 艾特:
-        消息链.append(At(qq=event.get_sender_id()))
-    if 文本:
-        消息链.append(Plain(text=文本))
-    if base图片:
-        消息链.append(Image.fromBase64(base图片))
-    if URL图片:
-        消息链.append(Image.fromURL(URL图片))
-    if 本地图片:
-        消息链.append(Image.fromFileSystem(本地图片))
-    await event.send(event.chain_result(消息链))
-```
-
-**注意**：在构造消息链时，如需 Reply 组件，必须放在第一位。
-
-### 4.3 OneBot 平台专属 API（aiocqhttp）
-
-```python
-from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
-
-# 需确保 event 为 AiocqhttpMessageEvent 类型
-await event.bot.get_group_member_info(group_id=int(群号), user_id=int(QQ号))
-await event.bot.get_group_member_list(group_id=int(群号))
-await event.bot.set_group_ban(group_id=int(群号), user_id=int(QQ号), duration=秒数)
-await event.bot.delete_msg(message_id=int(消息ID))
-await event.bot.call_action("send_group_msg", group_id=int(群号), message=消息)
-await event.bot.call_action("send_private_msg", user_id=int(QQ号), message=消息)
-```
-
-**注意**：群号和 QQ 号在存储时为 `str`，调用 API 时需转为 `int`。
-
----
-
-## 五、配置系统 (_conf_schema.json)
-
-### 5.1 基本结构
-
+### 插件配置
+### 插件配置
 ```json
+// _conf_schema.json
 {
-  "配置键名": {
-    "description": "显示名称",
-    "type": "类型",
-    "default": 默认值,
-    "hint": "提示信息（可选）"
-  }
-}
-```
-
-支持的 `type`：`"string"`, `"int"`, `"float"`, `"bool"`, `"text"`（多行文本）, `"list"`（内容类型为 `str`）, `"object"`（需 `"items": {...}`）, `"template_list"`（需 `"templates": {...}`）。
-
-### 5.2 特殊配置项
-
-```json
-{
-  "模型选择": {
+  "api_key": {
+    "description": "API密钥",
     "type": "string",
-    "_special": "select_provider",
     "default": ""
   },
-  "选项": {
-    "type": "string",
-    "options": ["选项A", "选项B", "选项C"],
-    "default": "选项A"
-  },
-  "数量": {
+  "max_count": {
+    "description": "最大数量",
     "type": "int",
-    "slider": {"min": 1, "max": 100, "step": 1},
     "default": 10
   }
 }
 ```
 
-### 5.3 在插件中读写配置
+**⚠️ 配置读取的正确方式：**
+
+必须在 `__init__` 中接收 `config` 参数，不能用 `self.context.get_config()`：
 
 ```python
-# 读取（带默认值）
-self.value = config.get("key", default)
-
-# 修改并保存
-config['key'] = new_value
-self.config.save_config()
-
-# 获取框架全局配置
-wake_prefix = context.get_config()["wake_prefix"]
-admins = context.get_config()["admins_id"]
+@register("astrbot_plugin_xxx", "Author", "Desc", "1.0.0")
+class MyPlugin(Star):
+    def __init__(self, context: Context, config: dict):
+        super().__init__(context)
+        self.config = config  # ✅ 正确
+        # self.context.get_config()  ❌ 不存在，会报错
+    
+    @filter.command("test")
+    async def test(self, event: AstrMessageEvent):
+        api_key = self.config.get("api_key", "")  # 读取配置
 ```
 
+配置文件路径: `/root/astrbot/data/config/astrbot_plugin_{name}_config.json`
+
+### 命令冲突避免
+
+当有多个插件功能相似时（如两个画图插件），需要用不同命令前缀区分：
+- 插件A: `画xxx` → Gemini画图
+- 插件B: `画画xxx` → GPT-Image画图
+
+不要用相同的 `@filter.regex()` 模式，否则两个插件都会触发。
+**读取配置 — `__init__` 签名必须包含 `config` 参数**:
+```python
+class MyPlugin(Star):
+    def __init__(self, context: Context, config: dict):
+        super().__init__(context)
+        self.config = config  # 这就是配置！
+
+    async def handler(self, event):
+        api_key = self.config.get("api_key", "")  # 用 .get() 安全访问
+```
+
+⚠️ **不要用 `self.context.get_config()`** — 不存在这个方法，会报 AttributeError。
+⚠️ **`config` 参数必须在 `__init__` 签名里**，否则配置全部读不到（静默回退到默认值）。
+
+**配置文件位置**: `/root/astrbot/data/config/astrbot_plugin_xxx_config.json`
+- WebUI 修改配置后会自动写入这个文件
+- 也可以手动创建/编辑 JSON 文件，重启 AstrBot 生效
+- 格式就是扁平 JSON，key 对应 schema 里的字段名
+
+⚠️ **无配置插件也必须有合法 `_conf_schema.json`**：
+- 不能为空对象 `{}` 或纯注释
+- 每个字段必须有 `type` + `description` + `default`
+- 无配置时用一个无用字段占位：
+```json
+{
+  "_comment": {
+    "description": "此插件无需配置",
+    "type": "string",
+    "default": ""
+  }
+}
+```
+- 格式错误会导致 `TypeError: string indices must be integers` 并载入失败
+
+### 存储
+⚠️ `context.get_data()` 和 `context.set_data()` **不存在**，会报 AttributeError。
+
+正确方式：用文件存储在插件数据目录：
+```python
+import os, json
+
+DATA_DIR = "/root/astrbot/data/plugin_data/astrbot_plugin_xxx"
+
+class MyPlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+    def _load(self, key: str) -> dict:
+        path = os.path.join(DATA_DIR, f"{key}.json")
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
+        return {}
+
+    def _save(self, key: str, data: dict):
+        with open(os.path.join(DATA_DIR, f"{key}.json"), "w") as f:
+            json.dump(data, f, ensure_ascii=False)
+```
+
+### 会话控制器
+```python
+from astrbot.core.utils.session_waiter import session_waiter, SessionController
+
+@filter.command("ask")
+async def ask(self, event: AstrMessageEvent):
+    yield event.plain_result("请输入你的名字：")
+    
+    @session_waiter(timeout=30)
+    async def get_name(controller: SessionController, event: AstrMessageEvent):
+        name = event.message_str
+        controller.stop()
+        yield event.plain_result(f"你好，{name}！")
+    
+    await get_name(event)
+```
+
+### 文转图
+```python
+from astrbot.core.utils.html2img import html2img
+
+html = "<h1>Hello</h1><p>World</p>"
+img_bytes = await html2img(html)
+yield event.image_result(img_bytes)
+```
+
+## 开发原则
+- 功能需经过测试
+- 良好注释
+- 持久化数据存 `data` 目录（不是插件目录）
+- 良好的错误处理，不要让插件崩溃
+- 用 `ruff` 格式化代码
+- 用 `aiohttp`/`httpx`，不用 `requests`
+- 优先给原插件提交 PR 而非另写
+
+## 发布插件
+1. 代码推送到 GitHub
+2. 确保 metadata.yaml 完整
+3. 有 README.md
+4. 有 requirements.txt（如有依赖）
+5. AstrBot 插件市场会自动索引
+
+## 安装插件到服务器
+
+```bash
+# 复制到插件目录
+cp -r astrbot_plugin_xxx /root/astrbot/data/plugins/
+
+# 重启 AstrBot 加载
+systemctl restart astrbot.service
+
+# 检查加载状态
+journalctl -u astrbot.service --since "10 sec ago" | grep "astrbot_plugin_xxx"
+```
+
+成功标志: `Plugin astrbot_plugin_xxx (1.0.0) by Author: 描述`
+失败标志: `插件 astrbot_plugin_xxx 载入失败` → 看后面的 Traceback
+
+## 禁用插件
+
+**❌ 不要用 `.disabled` 后缀**：AstrBot会扫描所有目录，包括 `.disabled` 结尾的，会报 `ModuleNotFoundError`。
+
+**✅ 正确方式**：移到 `plugins_backup/` 目录：
+```bash
+mkdir -p /root/astrbot/data/plugins_backup
+mv /root/astrbot/data/plugins/astrbot_plugin_xxx /root/astrbot/data/plugins_backup/
+systemctl restart astrbot.service
+```
+
+## Pitfalls
+
+### _conf_schema.json 必须是有效 schema
+❌ 错误写法（注释不是有效字段）:
+```json
+{
+  "comment": "此插件无需配置"
+}
+```
+会报: `TypeError: string indices must be integers, not 'str'`
+
+✅ 正确写法（无配置用空对象或带 type 的字段）:
+```json
+{
+  "_comment": {
+    "description": "无需配置",
+    "type": "string",
+    "default": ""
+  }
+}
+```
+或直接不创建 `_conf_schema.json` 文件。
+
+### metadata.yaml 必须存在且格式正确
+AstrBot 依赖它识别插件。缺失会导致插件不被加载，无明显报错。
+
+⚠️ **不要在 metadata.yaml 开头加 `---`** YAML 文档分隔符，会导致 "expected a single document in the stream" 警告。直接写内容即可：
+```yaml
+# ✅ 正确
+name: astrbot_plugin_xxx
+desc: 描述
+version: 1.0.0
+
+# ❌ 错误 — 不要加 ---
 ---
-
-## 六、LLM 集成
-
-### 6.1 直接调用 LLM
-
-```python
-chat_provider_id = await self.context.get_current_chat_provider_id(event.get_session_id())
-# 或获取消息源默认模型
-# provider = self.context.get_using_provider(event.unified_msg_origin)
-
-resp = await self.context.llm_generate(
-    chat_provider_id=chat_provider_id,
-    prompt="用户问题",
-    system_prompt="系统指令",
-    contexts=history_list,         # 历史对话，格式 [{"role":"user","content":"..."}, ...]
-)
-reply = resp.completion_text.strip()
+name: astrbot_plugin_xxx
 ```
 
-### 6.2 注册 LLM 工具（让 AI 调用）
+### 插件目录名必须与 metadata.yaml 中的 name 一致
+不一致会导致配置和数据存储路径错误。
 
-```python
-@filter.llm_tool(name="get_weather")
-async def get_weather(self, event: AstrMessageEvent, city: str):
-    """
-    查询指定城市的天气情况
-    Args:
-        city(string): 城市名称
-    """
-    # 实际获取天气数据
-    result = f"{city}的天气：晴，25°C"
-    return result  # 返回的字符串会交给 LLM 整合回复
+### 不要用 requests
+AstrBot 是异步框架，用 `requests` 会阻塞事件循环。必须用 `aiohttp` 或 `httpx`。
+
+## 踩坑记录
+
+### ⚠️ AstrBot CLI 必须在项目根目录运行
+
+`astrbot run` 命令必须在 AstrBot 安装目录下执行：`/root/astrbot/`。在其他目录下运行会报错：
+
+```
+Error: Runtime error: /path/to/somewhere is not a valid AstrBot root directory
 ```
 
----
-
-## 七、数据持久化
-
-### 7.1 JSON 文件
-
-```python
-import json, os
-
-data_path = os.path.join(StarTools.get_data_dir(), "data.json")
-
-def load(self):
-    if os.path.exists(self.data_path):
-        with open(self.data_path, 'r', encoding='utf-8') as f:
-            self.data = json.load(f)
-
-def save(self):
-    with open(self.data_path, 'w', encoding='utf-8') as f:
-        json.dump(self.data, f, ensure_ascii=False, indent=2)
+**正确启动方式**：
+```bash
+cd /root/astrbot && astrobot run
+# 或
+cd /root/astrbot && /root/.local/share/uv/tools/astrbot/bin/python3 /root/.local/bin/astrbot run
 ```
 
-### 7.2 SQLite 数据库（推荐大量数据）
+### ⚠️ gpt-image-2 不能用 /v1/images/generations 或 /v1/images/edits
+
+gpt-image-2、Gemini、Grok 等新一代多模态生图模型的**文生图和图生图都走 `/v1/chat/completions`**。如果文生图发了 `/v1/images/generations`，API 中转站返回 502/401，生成失败。
+
+**正确做法**：文生图也用 Chat Completions，只是 `messages` 中不带 `image_url` 字段：
 
 ```python
-import sqlite3
-from contextlib import closing
+# ✅ 文生图（无参考图）
+{"model": "gpt-image-2", "messages": [
+    {"role": "user", "content": [{"type": "text", "text": "一只猫"}]}
+]}
 
-db_path = os.path.join(StarTools.get_data_dir(), "data.db")
-
-# 写操作
-with closing(sqlite3.connect(db_path)) as conn:
-    c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT)')
-    c.execute('INSERT OR REPLACE INTO users VALUES (?, ?)', (user_id, name))
-    conn.commit()
-
-# 读操作
-with closing(sqlite3.connect(db_path)) as conn:
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE id=?', (user_id,))
-    row = c.fetchone()
+# ✅ 图生图（有参考图）
+{"model": "gpt-image-2", "messages": [
+    {"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+        {"type": "text", "text": "改成蓝色"}
+    ]}
+]}
 ```
 
-### 7.3 数据目录获取
+统一用 `_chat_generate` 方法，`image_bytes=None` 时只发文本，非 None 时加图片。
+
+### 获取消息中的图片（引用/内嵌）
+
+用 `event.get_messages()` + 消息组件类型来获取图片URL，不要直接遍历 `event.message_obj.message`：
 
 ```python
-from astrbot.api.star import StarTools
+from astrbot.api.event import AstrMessageEvent
+from astrbot.api.message_components import Image, Reply
 
-data_dir = StarTools.get_data_dir()   # 插件专属数据目录，返回Path对象
-font_path = StarTools.get_font_path() # 系统提供的字体路径
-```
+async def _get_image_url(self, event: AstrMessageEvent) -> str | None:
+    """从消息链或引用消息中获取图片URL"""
+    chain = event.get_messages()
 
----
+    # 1. 先检查引用消息中的图片
+    reply_seg = next((seg for seg in chain if isinstance(seg, Reply)), None)
+    if reply_seg and reply_seg.chain:
+        for seg in reply_seg.chain:
+            if isinstance(seg, Image) and seg.url:
+                return seg.url
 
-## 八、图片处理
+    # 2. 再检查当前消息中的图片
+    for seg in chain:
+        if isinstance(seg, Image) and seg.url:
+            return seg.url
 
-```python
-from PIL import Image, ImageDraw, ImageFont
-import io
-
-# 打开现有图片
-img = Image.open("path.png")
-# 创建新画布
-bg = Image.new('RGBA', (800, 600), (255, 255, 255, 255))
-
-# 绘图
-draw = ImageDraw.Draw(bg)
-font = ImageFont.truetype("font.ttf", 40)
-draw.text((x, y), "文本", font=font, fill=(0, 0, 0))
-
-# 圆形裁剪
-mask = Image.new('L', size, 0)
-ImageDraw.Draw(mask).ellipse([0, 0, w, h], fill=255)
-avatar = Image.new('RGBA', size, (0,0,0,0))
-avatar.paste(img, mask=mask)
-
-# 输出为字节流并发送
-img_bytes = io.BytesIO()
-bg.save(img_bytes, format='PNG')
-yield event.chain_result([Image.fromBytes(img_bytes.getvalue())])
-
-# 或临时文件方式
-temp_path = "/tmp/out.png"
-bg.save(temp_path)
-yield event.image_result(temp_path)
-os.remove(temp_path)
-```
-
----
-
-## 九、网络请求
-
-```python
-import aiohttp
-
-async with aiohttp.ClientSession() as session:
-    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-        data = await resp.read()     # 二进制
-        json_data = await resp.json() # JSON
-        text = await resp.text()     # 文本
-```
-
-也可使用 `httpx` 库。
-
----
-
-## 十、常见模式与技巧
-
-### 10.1 获取 @ 或引用的目标用户
-
-```python
-def get_target_user(event) -> tuple:
-    """返回 (用户ID, 用户名)，没有则返回 None"""
-    for seg in event.get_messages():
-        if isinstance(seg, At) and str(seg.qq) != event.get_self_id():
-            return str(seg.qq), seg.name or ""
-        if isinstance(seg, Reply):
-            return str(seg.sender_id), ""
     return None
 ```
 
-### 10.2 权限检查
+关键点:
+- `event.get_messages()` 返回解析后的消息链（list of segments）
+- `isinstance(seg, Reply)` 检查引用回复段，`reply_seg.chain` 是被引用消息的链
+- `isinstance(seg, Image)` 检查图片段，`seg.url` 是图片URL
+- 图片下载用 `aiohttp` 异步请求，不要用 `requests`
+
+### ❌ event.get_match() 不存在
+
+`@filter.regex()` 装饰器匹配后，**不能用 `event.get_match()`**（会报 `AttributeError: 'AiocqhttpMessageEvent' object has no attribute 'get_match'`）。
+
+正确做法：用 `event.message_str` + `re.match()` 手动提取：
 
 ```python
-# 检查是否群主/管理员
-def is_admin_or_owner(event, group_id, user_id) -> bool:
-    try:
-        return event.message_obj.raw_message['sender']['role'] in ('owner', 'admin')
-    except Exception as e:
-        logger.warning(str(e), exc_info=True)
-        return False
+import re
+from astrbot.api.event import AstrMessageEvent, filter
 
-# AstrBot 框架的管理员判断
-if event.is_admin():
-    pass
+@filter.regex(r"^画(.+)")
+async def draw(self, event: AstrMessageEvent):
+    msg = event.message_str.strip()
+    match = re.match(r"^画(.+)", msg)
+    if not match:
+        return
+    prompt = match.group(1).strip()
+    # ... 处理逻辑
 ```
 
-### 10.3 群组隔离数据存储
+- `_conf_schema.json` 格式不对 → `TypeError: string indices must be integers` 载入失败
+- 无配置插件也必须有合法 schema，用 `_comment` 占位
+- `@register` 装饰器参数顺序: (name, author, desc, version)
+- Handler 前两个参数必须是 `self`, `event`
+- 插件类文件必须叫 `main.py`
+- 持久化数据存 `data` 目录，别存插件目录（重装会被覆盖）
+- 不要用 `requests`，用 `aiohttp`/`httpx`
+
+### 禁用/卸载插件
+
+**正确做法**: 把插件目录移到 `plugins_backup/`：
+```bash
+mkdir -p /root/astrbot/data/plugins_backup
+mv /root/astrbot/data/plugins/astrbot_plugin_xxx /root/astrbot/data/plugins_backup/
+systemctl restart astrbot.service
+```
+
+**❌ 不要改名为 `.disabled` 后缀** — AstrBot 会扫描 `plugins/` 下所有子目录（包括 `.disabled` 结尾的），尝试导入模块导致 `ModuleNotFoundError` 报错。
+
+**重新启用**: 从 `plugins_backup/` 移回 `plugins/` 即可。
+
+### 命令前缀冲突
+
+多个插件的正则匹配会冲突。例如两个画图插件都用 `^画(.+)` ，只有一个能触发。
+
+**解决**: 用不同前缀区分（`画` vs `画画` vs `imagine`），或者用 `@filter.command("画")` 精确命令而非正则。
+
+### ⚠️ GPT-Image API prompt 长度导致上游超时
+
+插件不会截断 prompt，但上游 New API → OpenAI 链路对长 prompt 有超时风险：
+- ~400字符 → 正常出图（~80秒）
+- ~800字符 → 524 Cloudflare 超时
+
+精简 prompt 控制在 400-500 字符以内。详细行为数据见 `references/17-gpt-image-api.md`。
+
+### ⚠️ AstrBot via uv tool 版本号陷阱
+
+AstrBot 通过 `uv tool` 安装时，版本号可能高于 PyPI（如 v4.24.0 > PyPI 4.14.6）。直接 `uv tool upgrade` 可能反而降级。升级前先用 `pip index versions astrbot` 确认 PyPI 最新版本。
+
+正确的升级方式（允许预发布版本）：
+```bash
+uv tool upgrade astrbot --prerelease allow
+```
+
+### ⚠️ AstrBot 升级后 apscheduler 3→4 不兼容导致启动崩溃
+
+**症状**: `uv tool upgrade astrbot --prerelease allow` 后 AstrBot 启动失败：
+```
+ModuleNotFoundError: No module named 'apscheduler.schedulers'
+```
+
+**原因**: AstrBot v4.24.2 的依赖 `apscheduler` 被从 3.11.2 拉到 4.0.0a6，apscheduler 4.x 重构了整个 API（`apscheduler.schedulers.background` 模块不存在了），但 AstrBot 代码仍依赖 3.x API。
+
+**修复**: 手动回滚 apscheduler 到 3.x：
+```bash
+# 先停止服务防崩溃循环
+systemctl stop astrbot
+
+# 在 AstrBot 的 venv 里回滚 apscheduler
+/root/.local/share/uv/tools/astrbot/bin/pip install "apscheduler>=3.11,<4"
+
+# 重启
+systemctl restart astrbot
+```
+
+**排查步骤**:
+1. `journalctl -u astrbot -n 30` 看崩溃日志
+2. 确认是 `apscheduler.schedulers` ModuleNotFoundError
+3. `/root/.local/share/uv/tools/astrbot/bin/pip show apscheduler` 看当前版本
+4. 回滚到 3.x
+
+⚠️ 每次 `uv tool upgrade` 都可能再次拉到 4.0.0a6，需要重复回滚。直到 AstrBot 官方适配 apscheduler 4.x。
+
+**快速修复命令**:
+```bash
+systemctl stop astrbot
+/root/.local/share/uv/tools/astrbot/bin/pip install "apscheduler>=3.11,<4"
+systemctl restart astrbot
+```
+
+### ❌ `event.message_str` 在引用消息时丢弃 Plain 文本（致命坑）
+
+**根本问题**：当消息链同时包含 `Reply` 和 `Plain` 段时（如用户引用图片+发送"画画 xxx"），`event.message_str` 只返回 `[引用消息]` 而**完全不包含 Plain 段的文本**。Plain 段也不会包含"画画"（"画画"被 Reply 格式化吃掉了）。
+
+**症状**：
+- 不引用图片时 `画画 hello` → prompt="hello" ✅
+- 引用图片+`画画 hello` → prompt=""（空）❌
+- 日志显示 `get_messages count=2, types=['Reply', 'Plain']` 但 prompt 长度为 0
+
+**修复（正确版）**：有 Reply 时直接从 Plain 段取文本当 prompt，不要搜"画画"：
 
 ```python
-self.data = {}  # { group_id: { user_id: { ... } } }
+from astrbot.api.message_components import Image, Plain, Reply
 
-def get_user_data(self, group_id, user_id):
-    if group_id not in self.data:
-        self.data[group_id] = {}
-    if user_id not in self.data[group_id]:
-        self.data[group_id][user_id] = default_value
-    return self.data[group_id][user_id]
+@filter.regex(r"画画")
+async def generate_image(self, event: AstrMessageEvent):
+    chain = event.get_messages()
+    msg = event.message_str.strip()
+
+    # 有引用消息时：Plain 段不含"画画"，直接当 prompt
+    has_reply = any(isinstance(seg, Reply) for seg in chain)
+    plain_texts = [seg.text for seg in chain if isinstance(seg, Plain)]
+    prompt = ""
+    if has_reply and plain_texts:
+        prompt = " ".join(plain_texts).strip()
+    else:
+        # 纯文本场景：从 message_str 提取
+        match = re.search(r"画画(.*)", msg)
+        if match:
+            prompt = match.group(1).strip()
 ```
 
-### 10.4 异步后台任务
+### ❌ 正则匹配带 `^` 锚点 + 引用消息 = 匹配失败（次生问题）
+
+**注意**：上面的 `event.message_str` 丢弃 Plain 文本是更根本的问题。如果你的 prompt **恰好没有被丢弃**（如用户没发图片，只是纯文本引用），那么以下次生问题才会出现：
+
+用户引用一条消息并发送 `画画 xxx` 时，AstrBot 可能把消息拼成 `[引用消息] 画画 xxx`。如果插件用 `@filter.regex(r"^画画(.+)")` 或 `re.match(r"^画画(.+)", msg)`，`^` 要求"画画"在字符串开头，但前面有 `[引用消息]` 前缀，匹配失败→插件完全不触发。
+
+**修复**：去掉 `^` 锚点，用 `re.search()` 代替 `re.match()`：
+```python
+# ❌ 错误 — 引用时失效
+match = re.match(r"^画画(.+)", msg)
+
+# ✅ 正确
+match = re.search(r"画画(.+)", msg)
+```
+
+### ⚠️ 修改插件代码后必须清理 __pycache__
+
+AstrBot 在进程重启时会重新导入插件模块，但 Python 的 `.pyc` 字节码缓存可能让旧代码继续生效。修改 `main.py` 后如果行为没变：
+
+```bash
+# 清理插件的字节码缓存
+find /root/astrbot/data/plugins/astrbot_plugin_xxx -name '__pycache__' -exec rm -rf {} + 2>/dev/null
+find /root/astrbot -name '*.pyc' -path '*plugin_xxx*' -delete 2>/dev/null
+```
+
+特别是在 `metadata.yaml` 版本号、`@register` 装饰器、或核心逻辑修改后，不清缓存可能导致日志显示的版本号与代码不一致。
+
+### ⚠️ AstrBot 进程崩溃后可能残留 lock 文件
+
+异常退出后 `/root/astrbot/astrbot.lock` 没清理，重启时报 `Cannot acquire lock file`：
+
+```bash
+rm -f /root/astrbot/astrbot.lock
+# 然后重新启动
+```
+
+### ⚠️ 正则匹配不要用 `event.get_match()`
+
+`@filter.regex()` 装饰器不会注入 match 对象。必须用 `event.message_str` + `re.match()` 手动提取：
 
 ```python
-self._tasks = set()
-
-async def some_bg_work(self):
-    # 耗时操作
-    pass
-
-task = asyncio.create_task(self.some_bg_work())
-task.add_done_callback(self._tasks.discard)
-self._tasks.add(task)
-
-# 在 terminate 中清理
-async def terminate(self):
-    for task in self._tasks:
-        if not task.done():
-            task.cancel()
-    if self._tasks:
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+@filter.regex(r"^画画(.+)")
+async def draw(self, event: AstrMessageEvent):
+    msg = event.message_str.strip()
+    match = re.match(r"^画画(.+)", msg)
+    if not match:
+        return
+    prompt = match.group(1).strip()
 ```
 
-### 10.5 异步锁
+### ⚠️ 获取图片用 `event.get_messages()` + `Image`/`Reply`
+
+```python
+from astrbot.api.message_components import Image, Reply
+
+chain = event.get_messages()
+# 先查引用消息
+reply_seg = next((seg for seg in chain if isinstance(seg, Reply)), None)
+if reply_seg and reply_seg.chain:
+    for seg in reply_seg.chain:
+        if isinstance(seg, Image) and seg.url:
+            return seg.url
+# 再查当前消息
+for seg in chain:
+    if isinstance(seg, Image) and seg.url:
+        return seg.url
+```
+
+### ⚠️ 禁用插件用 `plugins_backup/` 目录
+
+重命名为 `.disabled` 无效，AstrBot 仍会尝试加载。正确做法：
+
+```bash
+mkdir -p /root/astrbot/data/plugins_backup
+mv /root/astrbot/data/plugins/astrbot_plugin_xxx /root/astrbot/data/plugins_backup/
+```
+
+详细踩坑记录见 `references/astrbot-plugin-pitfalls.md`。
+
+⚠️ **命令前缀冲突**: 如果服务器上有多个功能相似的插件（如两个画图插件），用不同命令前缀区分（"画" vs "画画"），否则正则匹配会冲突。
+
+尝试将 memorix（记忆系统）、万象画卷（AI画图）、mimo_tts（语音克隆）合并为一个插件时发现：
+
+**为什么不行**：
+- 每个插件 500-1800 行 main.py + 多层子模块，合并后 3000+ 行单文件不可维护
+- 命令空间冲突：三个插件各自有 10-25 个命令/hook，统一前缀 `/ai` 后子命令爆炸
+- 配置 schema 合并后 30+ 字段，用户配置困难
+- 依赖冲突：memorix 要 faiss/numpy/scipy，omnidraw 只要 aiohttp，mimo_tts 要 pydub
+- 功能域差异大：记忆(向量检索+知识图谱)、画图(多Provider容错)、TTS(音频合成) 粘不到一起
+
+**正确做法**：分别安装独立插件，各管各的：
+- `astrbot_plugin_memorix` — 长期记忆（Faiss向量+SciPy图谱+SQLite，双路检索+PageRank）
+- `astrbot_plugin_omnidraw` — AI画图/视频（多Provider容错，人设自拍，提示词优化器）
+- `astrbot_plugin_mimo_tts` — 语音合成（默认语音/克隆/设计三种模式）
+
+**如果确实需要联动**（比如"记忆注入时自动语音朗读"），用 AstrBot 的事件 hook 机制让插件间通过消息链协作，而非合并代码。
+
+### 大型插件子代理超时问题
+
+对大型插件做深度代码分析时，子代理容易超时（600s限制）。应对策略：
+- 先用 `read_file(limit=100)` 快速扫描每个文件的头部，理解结构
+- 再针对性读取关键函数（on_llm_request、命令handler、核心算法）
+- 不要让子代理一次分析太多文件，拆成更小的任务
+
+### 调用 HF Space / 外部 API 的坑
+
+**HF Space 冷启动超时**: CPU-basic 实例不活跃会休眠，冷启动可能需要 60-180 秒。aiohttp 默认超时 120 秒不够用，请求会静默失败（异常信息为空）。
+
+修复方案：
+1. 超时设为 300 秒: `aiohttp.ClientTimeout(total=300)`
+2. 加保活机制，每 5 分钟 ping 一次 `/api/health` 防休眠
+3. 错误日志要包含异常类型: `f"{type(e).__name__}: {e}"`（空错误信息很难排查）
 
 ```python
 import asyncio
+import aiohttp
 
-self.lock = asyncio.Lock()
-async with self.lock:
-    # 临界区操作
-    pass
+KEEPALIVE_INTERVAL = 300  # 5分钟
+
+class MyPlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self.session = None
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+    async def _get_session(self):
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=300)  # 冷启动需要更长超时
+            )
+        return self.session
+
+    async def _keepalive_loop(self):
+        """定期 ping 防止 HF Space 休眠"""
+        await asyncio.sleep(10)
+        while True:
+            try:
+                session = await self._get_session()
+                async with session.get(f"{HF_SPACE_URL}/api/health") as resp:
+                    if resp.status != 200:
+                        logger.warning(f"[MyPlugin] 保活 ping 异常: {resp.status}")
+            except Exception as e:
+                logger.warning(f"[MyPlugin] 保活 ping 失败: {type(e).__name__}: {e}")
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+
+    async def terminate(self):
+        if self._keepalive_task and not self._keepalive_task.done():
+            self._keepalive_task.cancel()
+        if self.session and not self.session.closed:
+            await self.session.close()
 ```
 
----
+**排查外部 API 调用失败的步骤**:
+1. 先用 `curl` 从服务器直接测 API 是否可达
+2. 再用 Python `aiohttp` 测试（排除异步框架问题）
+3. 检查 HF Space 状态: `GET /api/health` 看 `loaded_models` 和 `default_reference_audio_exists`
+4. 看 AstrBot 日志: `journalctl -u astrbot -f | grep "插件名"`
 
-## 十一、常用导入一览
+### ⚠️ after_message_sent 里不要用 event.send() — 会吞掉后续消息
+
+**致命 Bug**: 在 `@filter.after_message_sent()` 钩子里调用 `await event.send()` 会触发 AstrBot 事件传播终止机制，导致该用户后续所有消息被 AstrBot 收到但不回复（日志显示 `xxx 终止了事件传播`）。
+
+**症状**: AstrBot 日志正常收到消息，`Prepare to send` 后紧跟 `xxx - after_message_sent 终止了事件传播`，然后什么也不发生。用户表现为"机器人不理我"。
+
+**根因**: `event.send()` 内部走的是完整事件管道，AstrBot 在 `after_message_sent` 阶段调用它会触发传播终止逻辑。
+
+**修复**: 用 `asyncio.create_task()` 把实际工作扔到后台，handler 立即 return：
 
 ```python
-# 核心
-from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.all import Star, Context, AstrBotConfig, logger
-from astrbot.api.all import Plain, Image, At, Reply, Poke, Json, MessageChain
+import asyncio
+from astrbot.core.message.message_event_result import MessageEventResult
 
-# 平台适配
-from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
+@filter.after_message_sent()
+async def after_message_sent(self, event: AstrMessageEvent):
+    text = self._pending_tts.pop(event.unified_msg_origin, None)
+    if not text:
+        return
+    # ✅ 正确：create_task 后立即 return，不阻塞事件管道
+    asyncio.create_task(self._send_voice_after(event, text))
 
-# LLM 相关
-from astrbot.api.provider import ProviderRequest, LLMResponse
-
-# 工具
-from astrbot.api.star import register, StarTools
+async def _send_voice_after(self, event: AstrMessageEvent, text: str):
+    """后台任务：实际的 TTS 合成和发送"""
+    data = await self._tts(text)
+    if data:
+        record = Record.fromBase64(base64.b64encode(data).decode())
+        client = event.get_platform_adapter()
+        if client:
+            await client.send_message(event, MessageEventResult(chain=[record]))
+        # ❌ 错误：await event.send(event.chain_result([record]))
 ```
 
----
+⚠️ **重要**: 仅用底层适配器 `client.send_message()` 替换 `event.send()` 是不够的——实测 `after_message_sent` handler 本身在 `await` 任何异步操作后返回时就会终止事件传播。必须用 `asyncio.create_task()` 让 handler 立即 return，把实际工作完全放到后台 task 中。
 
-## 十二、避坑指南
+**排查步骤**:
+1. `journalctl -u astrbot -f` 看日志
+2. 搜索 `终止了事件传播` 关键词
+3. 确认是哪个插件的哪个 hook
+4. 检查 hook 内是否有 `event.send()` 调用
 
-1. **ID 类型**：群号、用户 ID 在框架中以 `str` 存储，传给 OneBot API 时转 `int`。
-2. **配置持久化**：修改 `config` 后可调用 `self.config.save_config()` 保存配置。
-3. **私聊群号**：`event.get_group_id()` 在私聊时返回空字符串。
-4. **图片来源**：生成图片后记得清理临时文件；也可使用 `BytesIO` 避免文件残留。
-5. **异步 IO**：在异步方法中避免使用同步阻塞 IO（如 `requests`），使用 `aiohttp` 或 `httpx`。
-6. **priority 顺序**：值越大越先执行。
-7. **热加载**：修改 `_conf_schema.json` 后需要重载插件才能生效。
+### 拦截/修改 LLM 回复 — `on_decorating_result`
+
+在消息发送前拦截结果链，可追加语音、图片、修改文本等。常用于"概率发语音"、自动追加水印等场景。
+
+```python
+import random
+import base64
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.core.message.components import Plain, Record
+
+class MyPlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self.voice_probability = 0.2  # 20% 概率
+
+    @filter.on_decorating_result()
+    async def on_decorating_result(self, event: AstrMessageEvent):
+        result = event.get_result()
+        if not result or not result.chain:
+            return
+        if not result.is_llm_result():  # 只对 LLM 回复生效
+            return
+        if random.random() > self.voice_probability:
+            return
+
+        text = result.get_plain_text().strip()
+        if not text or len(text) > 200:
+            return
+
+        # 合成语音并追加到结果链
+        audio_data = await self._tts(text)
+        if audio_data:
+            b64 = base64.b64encode(audio_data).decode()
+            result.chain.append(Record.fromBase64(b64))
+```
+
+关键点:
+- `@filter.on_decorating_result()` — 消息发送前的 hook，可直接修改 `result.chain`
+- `result.is_llm_result()` — 判断是否为 LLM 回复（排除命令回复等）
+- `result.get_plain_text()` — 提取所有 Plain 组件的文本
+- `Record.fromBase64(b64)` — 从 base64 创建语音消息段
+- `Record(file=url)` — 从 URL 创建语音消息段
+- 修改 `result.chain` 是原地生效的，无需返回值
+
+### ⚠️ on_decorating_result 阻塞陷阱
+
+**致命问题**: `on_decorating_result` 是同步阻塞的——它在消息发送 pipeline 中执行，任何耗时操作都会阻塞消息发送。如果在 hook 里调用外部 API（如 TTS），API 超时 = 消息永远发不出去。
+
+**正确模式**: 异步分离——缓存快查 + 后台追加
+
+```python
+@filter.on_decorating_result()
+async def on_decorating_result(self, event: AstrMessageEvent):
+    result = event.get_result()
+    if not result or not result.chain or not result.is_llm_result():
+        return
+    if random.random() > self.voice_probability:
+        return
+    text = result.get_plain_text().strip()
+    if not text or len(text) > 200:
+        return
+    origin = event.unified_msg_origin
+
+    # 只用缓存，不阻塞——没缓存就标记待合成
+    cached = self._get_cached(text)
+    if cached:
+        result.chain.append(Record.fromBase64(base64.b64encode(cached).decode()))
+    else:
+        self._pending_tts[origin] = text  # 消息发完后再处理
+
+@filter.after_message_sent()
+async def after_message_sent(self, event: AstrMessageEvent):
+    """消息发送后，异步合成语音 — 用 create_task 不阻塞事件管道"""
+    origin = event.unified_msg_origin
+    text = self._pending_tts.pop(origin, None)
+    if not text:
+        return
+    # ⚠️ 必须用 create_task，handler 本身不能 await 任何东西，否则终止事件传播
+    asyncio.create_task(self._send_voice_after(event, text))
+
+async def _send_voice_after(self, event, text):
+    try:
+        data = await self._tts(text)
+        if data:
+            record = Record.fromBase64(base64.b64encode(data).decode())
+            client = event.get_platform_adapter()
+            if client:
+                await client.send_message(event, MessageEventResult(chain=[record]))
+    except Exception as e:
+        logger.error(f"TTS 异步失败: {e}")
+```
+
+这样文本消息先发出去，语音后台追加，不会阻塞。
+
+其他可用 hook:
+- `@filter.on_llm_response()` — LLM 响应后触发，参数 `(event, response)`
+- `@filter.on_llm_request()` — LLM 请求前触发，可修改 system prompt
+- `@filter.after_message_sent()` — 消息发送后触发，适合后台任务
+
+## 图生图（Image Editing）集成
+
+### 方式一：Chat Completions + Vision 协议（推荐 — gpt-image-2 / Gemini / Grok 等）
+
+**这是现代多模态生图模型的主流方式**，不要用 `/images/edits`。
+
+图片编码为 base64 data URI，作为 multimodal content 发送：
+
+```python
+async def _edit_chat_vision(self, api_base, api_key, model, image_bytes, prompt, size, timeout):
+    url = f"{api_base}/v1/chat/completions"
+    img_b64 = base64.b64encode(image_bytes).decode()
+    data_uri = f"data:image/png;base64,{img_b64}"
+
+    messages = [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": data_uri}},
+        {"type": "text", "text": prompt},
+    ]}]
+    payload = {"model": model, "messages": messages}
+    if size:
+        payload["size"] = size
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            return await self._extract_from_chat(data, session)
+```
+
+**响应提取** — Chat Completions 返回格式多样，需要多种 fallback：
+
+```python
+async def _extract_from_chat(self, data, session):
+    # 1. choices[0].message.content → markdown ![xxx](url) 或 data URI 或纯 URL
+    if "choices" in data and data["choices"]:
+        msg = data["choices"][0].get("message", {})
+        content = msg.get("content", "")
+        if content:
+            match = re.search(r"!\[.*?\]\((.*?)\)", content)  # markdown image
+            if match:
+                return await self._download_url(match.group(1), session)
+            if content.startswith("data:image"):  # data URI
+                return base64.b64decode(content.split(",", 1)[1])
+            if content.startswith("http"):  # plain URL
+                return await self._download_url(content, session)
+        # 2. message.images 字段（部分 API 格式）
+        for img in msg.get("images", []):
+            url = img.get("url") or img.get("image_url", {}).get("url", "")
+            if url:
+                return await self._download_url(url, session)
+    # 3. 兜底: data[0].b64_json 或 data[0].url
+    if "data" in data and data["data"]:
+        item = data["data"][0]
+        if "b64_json" in item:
+            return base64.b64decode(item["b64_json"])
+        if "url" in item:
+            return await self._download_url(item["url"], session)
+    return None
+```
+
+### 方式二：`/v1/images/edits` + FormData（DALL-E 等传统模型）
+
+⚠️ 仅用于 DALL-E 系列。gpt-image-2 / Gemini / Grok 请用方式一。
+
+⚠️ **FormData 字段名是 `image`（不是 `image[]`）** — `image[]` 是 PHP 数组语法，OpenAI API 不认，会导致图片不被解析或返回原图：
+
+```python
+form.add_field("image", image_bytes, filename="input.png", content_type="image/png")
+#               ^^^^^ 不是 "image[]"
+```
+
+完整示例：
+
+```python
+async def _edit_images_api(self, api_base, api_key, model, image_bytes, prompt, size, timeout):
+    url = f"{api_base}/v1/images/edits"
+    form = aiohttp.FormData()
+    form.add_field("model", model)
+    form.add_field("prompt", prompt)
+    form.add_field("n", "1")
+    if size:
+        form.add_field("size", size)
+    form.add_field("image", image_bytes, filename="input.png", content_type="image/png")
+    # ⚠️ 字段名是 "image"（不是 "image[]"）
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+        async with session.post(url, headers=headers, data=form) as resp:
+            data = await resp.json()
+            if "data" in data and data["data"]:
+                return await self._extract_image(data["data"][0], session)
+    return None
+```
+
+### 统一调度：`edit_mode` 配置 + 自动检测
+
+插件应支持 `edit_mode` 配置项，在 `auto` 模式时根据模型名自动选择。`_conf_schema.json` 中配置：
+
+```json
+"edit_mode": {
+  "description": "图生图模式",
+  "type": "string",
+  "default": "auto",
+  "options": [
+    {"label": "自动识别（推荐）", "value": "auto"},
+    {"label": "Chat/Vision通道", "value": "chat_vision"},
+    {"label": "images/edits通道", "value": "images_edits"}
+  ]
+}
+```
+
+```python
+def _resolve_edit_mode(self, edit_mode: str, model: str) -> str:
+    if edit_mode != "auto":
+        return edit_mode
+    model_lower = model.lower()
+    # chat_vision 类模型
+    if any(kw in model_lower for kw in ["gpt-image", "gemini", "grok", "imagen", "claude"]):
+        return "chat_vision"
+    # images_edits 类模型
+    if any(kw in model_lower for kw in ["dall-e", "dalle"]):
+        return "images_edits"
+    return "chat_vision"  # 默认（更通用）
+```
+
+### 统一文生图+图生图的插件模式（正确版）
+
+⚠️ **gpt-image-2 / Gemini / Grok 等模型的文生图和图生图都走 Chat Completions API**，不要对它们使用 `/v1/images/generations`！只 DALL-E 用 `/v1/images/*`。
+
+```python
+@filter.regex(r"^画画(.+)")
+async def generate_image(self, event):
+    prompt = ...  # 提取prompt
+    image_url = await self._get_image_url(event)  # 检查是否有图片
+    img_bytes = None
+
+    if image_url:
+        yield event.plain_result("正在编辑图片...")
+        img_bytes = await self._download_image(image_url)
+        if not img_bytes:
+            yield event.plain_result("下载图片失败")
+            return
+    else:
+        yield event.plain_result("正在画...")
+
+    # 统一按模式分发
+    mode = self._resolve_edit_mode(edit_mode, model)
+    if mode == "images_edits":
+        # DALL-E 风格：文生图用 POST /v1/images/generations，图生图用 POST /v1/images/edits + FormData
+        if img_bytes:
+            result = await self._edit_images_api(api_base, api_key, model, img_bytes, prompt, size, timeout)
+        else:
+            result = await self._generate_images_api(api_base, api_key, model, prompt, size, timeout)
+    else:
+        # chat_vision：文生图+图生图统一走 POST /v1/chat/completions + multimodal content
+        result = await self._chat_generate(api_base, api_key, model, img_bytes, prompt, size, timeout)
+
+    if result:
+        path = f"/tmp/image_gen/{int(time.time())}.png"
+        with open(path, "wb") as f:
+            f.write(result)
+        yield event.image_result(path)
+```
+
+`_chat_generate` 签名：`image_bytes: bytes | None` — 为 None 时纯文本生图，有值时图文混合：
+
+```python
+async def _chat_generate(self, api_base, api_key, model, image_bytes, prompt, size, timeout):
+    url = f"{api_base}/v1/chat/completions"
+    user_content = []
+    if image_bytes:
+        b64 = base64.b64encode(image_bytes).decode()
+        user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+    user_content.append({"type": "text", "text": prompt})
+    
+    payload = {"model": model, "messages": [{"role": "user", "content": user_content}]}
+    if size:
+        payload["size"] = size
+    
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    async with aiohttp.ClientSession(timeout=...) as session:
+        async with session.post(url, headers=headers, json=payload) as resp:
+            return await self._extract_from_chat(await resp.json(), session)
+```
+
+### 响应格式兼容
+
+文生图和图生图返回格式相同，统一处理：
+
+```python
+async def _extract_image(self, item: dict, session: aiohttp.ClientSession) -> bytes | None:
+    if "b64_json" in item:
+        return base64.b64decode(item["b64_json"])
+    elif "url" in item:
+        async with session.get(item["url"]) as img_resp:
+            if img_resp.status == 200:
+                return await img_resp.read()
+    return None
+```
+
+### ⚠️ 必须用 aiohttp，不要用 requests
+
+AstrBot 是异步框架，用 `requests` 会阻塞事件循环。文生图和图生图都要用 `aiohttp`。
+
+## 提示词优化器（副脑）模式
+
+当用户输入简短prompt时，用LLM扩写成结构化高质量prompt，大幅提升出图质量。
+
+**核心流程**: 用户输入 → LLM扩写(结构化JSON) → 解析/抢救 → 拼接成长prompt → 生图API
+
+**关键设计**:
+- 用轻量模型(gpt-4o-mini)做优化，重量模型(gpt-image-2)做出图，分离API配额
+- JSON输出保证6个维度全覆盖: 人物外貌、服装、姿势、场景、光影、技术参数
+- **反拼贴标签**: prompt前强制加 `"1girl, solo, single image, NO grid, NO collage"` 防九宫格
+- **无敌抢救模式**: JSON解析失败时，按key名逐个定位手动提取value
+- 风格预设通过切换style_data实现，支持自定义模式
+
+**人设自拍公式**: `final_prompt = "{persona_base_prompt}, {optimized_action}"`
+- 参考图优先级: 用户发的图 > 配置的persona_ref_image
+- @llm_tool中用`event.send()`发图片，return string给LLM做文本回复
+
+完整实现见 `references/04-prompt-optimizer-and-persona.md`
+
+## 参考文件
+详细文档位于 skill 目录的 `references/` 下，包含：
+- **astrbot-plugin-pitfalls.md** — 实战踩坑记录（正则匹配、图片获取、配置读取、禁用插件、缓存问题、日志调试、QQ消息长度限制）
+- 03-plugin-integration-patterns.md（Memorix/万象画卷/MiMo TTS三插件深度分析 + 整合架构参考）
+
+模板文件位于 `templates/` 下：
+- `astrbot_plugin_image_gen_example/` — 带配置的API调用插件完整示例（main.py + _conf_schema.json + metadata.yaml）
+- 01-从这里开始.md（环境准备）
+- 02-最小实例.md
+- 03-接收消息事件.md（452行，最详细）
+- 04-发送消息.md
+- 05-插件配置.md
+- 06-调用AI.md（553行，AI调用详解）
+- 07-存储.md
+- 08-文转图.md
+- 09-会话控制器.md
+- 10-杂项.md
+- 11-发布插件.md
+- 12-插件指南旧版.md（1725行，旧版完整参考）
+- 13-接入平台适配器.md
+- 14-HTTP-API.md
+- 15-配置文件.md
+- 16-图片处理与外部API调用.md（图片获取、妙达Gemini API、图片编辑）
+- **17-gpt-image-api.md** — GPT-Image-2 API格式、响应差异、插件集成
+- **18-gpt-image-edits-api.md** — GPT-Image 图生图 API (`/v1/images/edits`)，multipart/form-data 格式
+- **astrbot-plugin-architecture.md**（memorix/万象画卷/mimo_tts三大插件深度架构分析）
+- **04-prompt-optimizer-and-persona.md** — 副脑提示词优化器 + 人设自拍系统完整实现模式（风格预设、JSON解析+抢救模式、反拼贴、@llm_tool注册）
