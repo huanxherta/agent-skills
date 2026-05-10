@@ -551,7 +551,7 @@ systemctl restart astrbot
 - 引用图片+`画画 hello` → prompt=""（空）❌
 - 日志显示 `get_messages count=2, types=['Reply', 'Plain']` 但 prompt 长度为 0
 
-**修复（正确版）**：有 Reply 时直接从 Plain 段取文本当 prompt，不要搜"画画"：
+**修复（正确版 — 通用）**：只要有 Plain 段就用它（同时覆盖 Reply+Plain 和 Plain+Image 场景）：
 
 ```python
 from astrbot.api.message_components import Image, Plain, Reply
@@ -561,14 +561,14 @@ async def generate_image(self, event: AstrMessageEvent):
     chain = event.get_messages()
     msg = event.message_str.strip()
 
-    # 有引用消息时：Plain 段不含"画画"，直接当 prompt
-    has_reply = any(isinstance(seg, Reply) for seg in chain)
+    # Plain segment 是权威文本源（message_str 在图片/引用时不可靠）
     plain_texts = [seg.text for seg in chain if isinstance(seg, Plain)]
     prompt = ""
-    if has_reply and plain_texts:
-        prompt = " ".join(plain_texts).strip()
+    if plain_texts:
+        text = " ".join(plain_texts).strip()
+        match = re.search(r"画画\s*(.*)", text)
+        prompt = match.group(1).strip() if match else text
     else:
-        # 纯文本场景：从 message_str 提取
         match = re.search(r"画画(.*)", msg)
         if match:
             prompt = match.group(1).strip()
