@@ -14,6 +14,7 @@ Hermes Agent 的技能库，严格遵循 [Agent Skills 规范](https://agentskil
 | Gaming | 1 | [→](#gaming) |
 | GitHub | 1 | [→](#github) |
 | MLOps | 1 | [→](#mlops) |
+| Social Media | 1 | [→](#social-media) |
 
 ---
 
@@ -135,6 +136,22 @@ Hugging Face Hub CLI（hf）：搜索、下载、上传模型/数据集，管理
 → [完整文档](mlops/huggingface-hub/SKILL.md)
 </details>
 
+### Social Media
+
+| 技能 | 用途 | 路径 |
+|------|------|------|
+| [hermes-tweet](#hermes-tweet) | Hermes Agent X/Twitter 插件：搜索推文、读取回复、查询用户、监控趋势、发布推文、发送 DM，并对 X 动作做审批门控 | [`social-media/hermes-tweet/`](social-media/hermes-tweet/) |
+
+<details>
+<summary><b>hermes-tweet</b></summary>
+
+Hermes Tweet 通过 Xquik 把 search tweets、read tweet replies、look up users、
+monitor trends、export followers、post tweets、post replies 和 send DMs 接入
+Hermes Agent，并保持 `tweet_read` 与 `tweet_action` 分离。
+
+→ [完整文档](social-media/hermes-tweet/SKILL.md)
+</details>
+
 ---
 
 ## 目录结构
@@ -165,8 +182,11 @@ agent-skills/
 ├── github/
 │   └── github-pr-workflow/
 │       └── SKILL.md
-└── mlops/
-    └── huggingface-hub/
+├── mlops/
+│   └── huggingface-hub/
+│       └── SKILL.md
+└── social-media/
+    └── hermes-tweet/
         └── SKILL.md
 ```
 
